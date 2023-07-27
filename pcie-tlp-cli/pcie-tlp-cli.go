@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/akamensky/argparse"
-	"github.com/google/go-pcie-tlp/pcie"
+	"github.com/rabidcicada/go-pcie-tlp/pcie"
 )
 
 const (
@@ -73,22 +73,44 @@ const (
 	EndEndVendPrefix TlpType = (fmtTlpPrefix << 5) | 0b11110
 )
 
-func printBytes(s []byte) {
-	fmt.Printf("% x", printBytes)
+func printfmttypes() {
+	fmt.Printf("MRd3 % x\n", MRd3);
+	fmt.Printf("MRd4 % x\n", MRd4);
+	fmt.Printf("MRdLk3 % x\n", MRdLk3);
+	fmt.Printf("MRdLk4 % x\n", MRdLk4);
+	fmt.Printf("MWr3 % x\n", MWr3);
+	fmt.Printf("MWr4 % x\n", MWr4);
+	fmt.Printf("IORdT % x\n", IORdT);
+	fmt.Printf("IOWrtT % x\n", IOWrtT);
+	fmt.Printf("CfgRd0 % x\n", CfgRd0);
+	fmt.Printf("CfgWr0 % x\n", CfgWr0);
+	fmt.Printf("CfgRd1 % x\n", CfgRd1);
+	fmt.Printf("CfgWr1 % x\n", CfgWr1);
+	fmt.Printf("CplE % x\n", CplE);
+	fmt.Printf("CplD % x\n", CplD);
+	fmt.Printf("CplLk % x\n", CplLk);
+	fmt.Printf("CplLkD % x\n", CplLkD);
+	fmt.Printf("MRIOV % x\n", MRIOV);
+	fmt.Printf("LocalVendPrefix % x\n", LocalVendPrefix);
+	fmt.Printf("ExtTPH % x\n", ExtTPH);
+	fmt.Printf("PASID % x\n", PASID);
+	fmt.Printf("EndEndVendPrefix % x\n", EndEndVendPrefix);
 }
 
 func main() {
+	all_tlp_types := []string{"MEMRD", "MEMWR", "CPL", "CFGWR"}
 	// Create new parser object
 	parser := argparse.NewParser("tlp-encode-decode", "encodes or decodes tlps")
 
 	encode := parser.Flag("e", "encode", &argparse.Options{Required: false, Help: "Set if Encoding (as opposed to default decoding)"})
+	printtypes := parser.Flag("p", "printtypes", &argparse.Options{Required: false, Help: "Print FMT/Type byte variations"})
 
 	// Create string flag
 	tlp_raw_bytes_str := parser.String("b", "bytes", &argparse.Options{Required: false, Help: "hexadecimal bytes of an expected tlp.  E.G. 08 08 00 60 FF 89 34 12 DD CC BB AA 18 AA FF EE CC CC CC CC FF FF FF FF'"})
 	data_raw_bytes_str := parser.String("d", "data", &argparse.Options{Required: false, Help: "hexadecimal bytes of an expected tlp payload.  E.G. 08 08 00 60 FF 89 34 12 DD CC BB AA 18 AA FF EE CC CC CC CC FF FF FF FF'"})
 
 	// TLP Type to Try
-	var tlp_type *string = parser.Selector("t", "type", []string{"MEMRD", "MEMWR"}, &argparse.Options{Required: true, Help: "The type of TLP transaction"})
+	var tlp_type *string = parser.Selector("t", "type", all_tlp_types, &argparse.Options{Required: false, Help: "The type of TLP transaction"})
 	var device_id_str *string = parser.String("", "did", &argparse.Options{Required: false, Help: "Device ID in form of '<busnum>:<devicenum>:<funcnum>'"})
 	tag := parser.Int("", "tag", &argparse.Options{Required: false, Help: "uint8_t tag number"})
 	addr_str := parser.String("", "addr", &argparse.Options{Required: false, Help: "Non-0x-prefixed hexadecimal address"})
@@ -101,6 +123,10 @@ func main() {
 		// This can also be done by passing -h or --help flags
 		fmt.Print(parser.Usage(err))
 		os.Exit(1)
+	}
+	if *printtypes {
+		printfmttypes();
+		return
 	}
 
 	var tlp_raw_bytes []byte
@@ -132,9 +158,11 @@ func main() {
 
 				panic(err)
 			}
+		default:
+			panic("Unsupported type specified")
 		}
 	} else {
-		fmt.Print("Parsing Decode Args")
+		fmt.Print("Parsing Decode Args\n")
 		spaceless_tlp_raw_bytes_str := strings.ReplaceAll(*tlp_raw_bytes_str, " ", "")
 
 		tlp_raw_bytes, err = hex.DecodeString(spaceless_tlp_raw_bytes_str)
@@ -164,24 +192,57 @@ func main() {
 			fmt.Print(hex.EncodeToString(tlp.ToBytes()))
 			fmt.Printf("\nMWr3 as uint8==>%02x\n",uint8(MWr3))
 			fmt.Printf("\nMWr4 as uint8==>%02x\n",uint8(MWr4))
+		default:
+			panic("Unsupported type specified")
 		}
 	} else {
 
 		// Dispatch into parsers
-		switch *tlp_type {
+		if *tlp_type == "" {
+			try_decode(tlp_raw_bytes, all_tlp_types...)
+		}else{
+			try_decode(tlp_raw_bytes, *tlp_type)
+		}
+
+	}
+}
+
+func try_decode( tlp_raw_bytes []byte,  types ...string) {
+	errs := []error{}
+
+	for _,t := range types {
+		switch t {
 		case "MEMRD":
 			tlp, err := pcie.NewMRdFromBytes(tlp_raw_bytes)
 			if err != nil {
-				panic(err)
+				errs = append(errs,fmt.Errorf("MEMRD: %w",err))
+				continue
 			}
-			fmt.Print(hex.EncodeToString(tlp.ToBytes()))
+			fmt.Print("Valid MEMRD Packet:" + hex.EncodeToString(tlp.ToBytes())+"\n")
+			return
 		case "MEMWR":
 			tlp, err := pcie.NewMWrFromBytes(tlp_raw_bytes)
 			if err != nil {
-				panic(err)
+				errs = append(errs,fmt.Errorf("MEMWR: %w",err))
+				continue
 			}
 
-			fmt.Print(hex.EncodeToString(tlp.ToBytes()))
+			fmt.Print("Valid MEMWR Packet:" + hex.EncodeToString(tlp.ToBytes())+"\n")
+			return
+		case "CPL":
+			tlp, err := pcie.NewCplFromBytes(tlp_raw_bytes)
+			if err != nil {
+				errs = append(errs,fmt.Errorf("CPL: %w",err))
+				continue
+			}
+
+			fmt.Print("Valid CPL Packet:" + hex.EncodeToString(tlp.ToBytes())+"\n")
+			return
 		}
+		
 	}
+	for _,err := range errs {
+		fmt.Println(err.Error())
+	}
+
 }
